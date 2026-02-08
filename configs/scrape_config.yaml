@@ -1,0 +1,113 @@
+# Kickstarter AI Scraper Configuration
+
+# Search parameters for AI-related projects
+search:
+  # Search terms to query (combined with OR logic across runs)
+  terms:
+    - "artificial intelligence"
+    - "machine learning"
+    - "deep learning"
+    - "neural network"
+    - "AI"
+    - "GPT"
+    - "large language model"
+    - "computer vision"
+    - "natural language processing"
+    - "robotics AI"
+    - "generative AI"
+    - "AI assistant"
+    - "AI tool"
+
+  # Kickstarter category IDs to search within
+  # 16 = Technology, 34 = Software, 51 = Apps
+  category_ids:
+    - 16   # Technology
+    - 34   # Software
+    - 51   # Apps
+    - 335  # Robots
+
+  # Also search across all categories with AI terms (broader net)
+  search_all_categories: true
+
+  # Date range (ISO format, null = no limit)
+  launched_after: null   # e.g., "2009-01-01"
+  launched_before: null  # e.g., "2026-12-31"
+
+  # Project states to collect
+  states:
+    - "live"
+    - "successful"
+    - "failed"
+    - "canceled"
+    - "suspended"
+
+# Scraping behavior
+scraping:
+  # Requests per second (be respectful)
+  rate_limit_rps: 1.0
+
+  # Max retries on failure
+  max_retries: 3
+
+  # Backoff multiplier for retries (seconds)
+  retry_backoff: 2.0
+
+  # Request timeout (seconds)
+  timeout: 30
+
+  # Max concurrent connections
+  max_connections: 5
+
+  # User-Agent string
+  user_agent: "KickstarterResearchBot/0.1 (academic research; contact@example.com)"
+
+  # Delay between paginated requests (seconds)
+  page_delay: 1.5
+
+  # Whether to fetch full project details (slower but more data)
+  fetch_project_details: true
+
+  # Whether to fetch reward tiers
+  fetch_rewards: true
+
+  # Whether to fetch creator profile
+  fetch_creator: true
+
+# Output settings
+output:
+  # Raw JSON storage
+  raw_dir: "data/raw"
+
+  # Processed data
+  processed_dir: "data/processed"
+
+  # Export directory (CSV/Parquet)
+  export_dir: "data/exports"
+
+  # Log directory
+  log_dir: "logs"
+
+  # Checkpoint file (for resuming interrupted scrapes)
+  checkpoint_file: "data/.checkpoint.json"
+
+# Filtering (post-scrape)
+filtering:
+  # Minimum relevance score (0-1) for AI classification
+  min_relevance_score: 0.3
+
+  # Keywords that must appear in name or blurb (at least one)
+  must_match_keywords:
+    - "ai"
+    - "artificial intelligence"
+    - "machine learning"
+    - "deep learning"
+    - "neural"
+    - "gpt"
+    - "llm"
+    - "computer vision"
+    - "nlp"
+    - "robot"
+    - "autonomous"
+    - "intelligent"
+    - "predictive"
+    - "generative"
