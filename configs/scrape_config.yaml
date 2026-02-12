@@ -4,19 +4,13 @@
 search:
   # Search terms to query (combined with OR logic across runs)
   terms:
-    - "artificial intelligence"
-    - "machine learning"
-    - "deep learning"
-    - "neural network"
     - "AI"
-    - "GPT"
-    - "large language model"
-    - "computer vision"
-    - "natural language processing"
-    - "robotics AI"
-    - "generative AI"
+    - "artificial intelligence"
     - "AI assistant"
     - "AI tool"
+    - "AI powered"
+    - "generative AI"
+    - "AI app"
 
   # Kickstarter category IDs to search within
   # 16 = Technology, 34 = Software, 51 = Apps
@@ -99,15 +93,8 @@ filtering:
   must_match_keywords:
     - "ai"
     - "artificial intelligence"
-    - "machine learning"
-    - "deep learning"
-    - "neural"
-    - "gpt"
-    - "llm"
-    - "computer vision"
-    - "nlp"
-    - "robot"
-    - "autonomous"
-    - "intelligent"
-    - "predictive"
-    - "generative"
+    - "ai-powered"
+    - "ai powered"
+    - "generative ai"
+    - "ai assistant"
+    - "ai tool"

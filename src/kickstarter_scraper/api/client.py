@@ -1,9 +1,8 @@
-"""HTTP client for Kickstarter's internal API endpoints.
+"""HTTP client for Kickstarter with Cloudflare bypass.
 
-Kickstarter exposes JSON data via:
-  - Discovery API: /discover/advanced.json (search + paginate projects)
-  - Project detail: /projects/{slug}.json (full project data)
-  - Rewards: embedded in project detail or via dedicated endpoint
+Two backends:
+  1. curl_cffi — fast, impersonates browser TLS fingerprint
+  2. Playwright — fallback headless browser for when curl_cffi gets blocked
 
 Rate-limited with exponential backoff.
 """
@@ -11,79 +10,55 @@ Rate-limited with exponential backoff.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
+import time
 from typing import Any, Optional
-
-import httpx
-from tenacity import (
-    retry,
-    retry_if_exception_type,
-    stop_after_attempt,
-    wait_exponential,
-)
+from urllib.parse import urlencode
 
 logger = logging.getLogger(__name__)
 
 BASE_URL = "https://www.kickstarter.com"
 
-# Kickstarter returns 429 if you're too fast
-RETRYABLE_STATUS = {429, 500, 502, 503, 504}
-
 
 class RateLimiter:
-    """Token-bucket rate limiter."""
+    """Simple rate limiter."""
 
     def __init__(self, rps: float = 1.0):
         self._interval = 1.0 / rps
-        self._last_request = 0.0
+        self._last = 0.0
         self._lock = asyncio.Lock()
 
     async def acquire(self):
         async with self._lock:
-            now = asyncio.get_event_loop().time()
-            wait = self._last_request + self._interval - now
+            now = time.monotonic()
+            wait = self._last + self._interval - now
             if wait > 0:
                 await asyncio.sleep(wait)
-            self._last_request = asyncio.get_event_loop().time()
+            self._last = time.monotonic()
 
 
 class KickstarterAPIError(Exception):
-    """Raised on non-retryable API errors."""
-
     def __init__(self, status_code: int, message: str):
         self.status_code = status_code
         super().__init__(f"HTTP {status_code}: {message}")
 
 
 class KickstarterClient:
-    """Async HTTP client for Kickstarter endpoints."""
+    """Kickstarter client with curl_cffi (fast) + Playwright (fallback)."""
 
     def __init__(
         self,
         rate_limit_rps: float = 1.0,
-        max_retries: int = 3,
         timeout: float = 30.0,
-        user_agent: str = "KickstarterResearchBot/0.1",
-        proxy: Optional[str] = None,
+        max_retries: int = 3,
+        user_agent: str | None = None,
     ):
         self._rate_limiter = RateLimiter(rps=rate_limit_rps)
-        self._max_retries = max_retries
         self._timeout = timeout
-
-        transport_kwargs: dict[str, Any] = {}
-        if proxy:
-            transport_kwargs["proxy"] = proxy
-
-        self._client = httpx.AsyncClient(
-            base_url=BASE_URL,
-            timeout=httpx.Timeout(timeout),
-            headers={
-                "User-Agent": user_agent,
-                "Accept": "application/json",
-            },
-            follow_redirects=True,
-            **transport_kwargs,
-        )
+        self._max_retries = max_retries
+        self._browser = None  # lazy Playwright init
+        self._page = None
 
     async def __aenter__(self):
         return self
@@ -92,58 +67,95 @@ class KickstarterClient:
         await self.close()
 
     async def close(self):
-        await self._client.aclose()
+        if self._browser:
+            await self._browser.close()
+            self._browser = None
 
-    @retry(
-        retry=retry_if_exception_type(httpx.HTTPStatusError),
-        stop=stop_after_attempt(4),
-        wait=wait_exponential(multiplier=2, min=1, max=30),
-        reraise=True,
-    )
-    async def _request(self, method: str, path: str, **kwargs) -> dict:
-        """Make a rate-limited request with retry logic."""
+    def _curl_get(self, url: str) -> tuple[int, str]:
+        """Synchronous curl_cffi request impersonating Chrome."""
+        from curl_cffi import requests as curl_requests
+
+        resp = curl_requests.get(
+            url,
+            impersonate="chrome",
+            timeout=self._timeout,
+        )
+        return resp.status_code, resp.text
+
+    async def _curl_get_async(self, url: str) -> tuple[int, str]:
+        """Run curl_cffi in a thread to keep async."""
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, self._curl_get, url)
+
+    async def _playwright_get(self, url: str) -> str:
+        """Fallback: use Playwright headless browser."""
+        if not self._browser:
+            from playwright.async_api import async_playwright
+
+            pw = await async_playwright().start()
+            self._browser = await pw.chromium.launch(headless=True)
+            self._page = await self._browser.new_page()
+
+        await self._page.goto(url, wait_until="networkidle", timeout=self._timeout * 1000)
+        return await self._page.content()
+
+    async def _request_json(self, url: str) -> dict:
+        """Fetch a URL and parse JSON. Retries with backoff on 403/5xx."""
         await self._rate_limiter.acquire()
 
-        resp = await self._client.request(method, path, **kwargs)
+        for attempt in range(self._max_retries):
+            try:
+                status, body = await self._curl_get_async(url)
+                if status == 200:
+                    return json.loads(body)
+                if status == 403:
+                    wait = 15 * (attempt + 1)
+                    logger.warning(f"403 blocked, waiting {wait}s (attempt {attempt + 1})")
+                    await asyncio.sleep(wait)
+                    continue
+                if status >= 500:
+                    logger.warning(f"Server error {status}, retry {attempt + 1}")
+                    await asyncio.sleep(2 ** attempt)
+                    continue
+                raise KickstarterAPIError(status, body[:200])
+            except json.JSONDecodeError:
+                logger.warning(f"Non-JSON response, retry {attempt + 1}")
+                await asyncio.sleep(5)
+                continue
+            except KickstarterAPIError:
+                raise
+            except Exception as e:
+                if attempt == self._max_retries - 1:
+                    raise KickstarterAPIError(0, str(e))
+                await asyncio.sleep(2 ** attempt)
 
-        if resp.status_code in RETRYABLE_STATUS:
-            logger.warning(f"Retryable status {resp.status_code} for {path}")
-            resp.raise_for_status()
+        raise KickstarterAPIError(403, "Max retries exceeded")
 
-        if resp.status_code >= 400:
-            raise KickstarterAPIError(resp.status_code, resp.text[:200])
+    async def _request_html(self, url: str) -> str:
+        """Fetch a URL and return HTML content."""
+        await self._rate_limiter.acquire()
 
-        return resp.json()
+        # Try curl_cffi first
+        try:
+            status, body = await self._curl_get_async(url)
+            if status == 200:
+                return body
+        except Exception:
+            pass
+
+        # Fallback: Playwright
+        return await self._playwright_get(url)
 
     async def discover(
         self,
-        term: Optional[str] = None,
-        category_id: Optional[int] = None,
+        term: str | None = None,
+        category_id: int | None = None,
         state: str = "all",
         sort: str = "newest",
         page: int = 1,
-        per_page: int = 20,
     ) -> dict:
-        """Search/discover projects.
-
-        Uses Kickstarter's /discover/advanced.json endpoint.
-
-        Args:
-            term: Search query string.
-            category_id: Filter by category ID.
-            state: Project state filter (all/live/successful/failed).
-            sort: Sort order (newest/popularity/end_date/most_funded/most_backed).
-            page: Page number (1-indexed).
-            per_page: Results per page (max ~20 from Kickstarter).
-
-        Returns:
-            Raw JSON response with 'projects' list and pagination info.
-        """
-        params: dict[str, Any] = {
-            "sort": sort,
-            "page": page,
-            "per_page": per_page,
-        }
+        """Search/discover projects via /discover/advanced.json."""
+        params: dict[str, Any] = {"sort": sort, "page": page}
         if term:
             params["term"] = term
         if category_id:
@@ -151,52 +163,32 @@ class KickstarterClient:
         if state and state != "all":
             params["state"] = state
 
-        logger.debug(f"Discover: term={term}, category={category_id}, page={page}")
-        return await self._request("GET", "/discover/advanced.json", params=params)
+        url = f"{BASE_URL}/discover/advanced.json?{urlencode(params)}"
+        logger.debug(f"Discover: {url}")
+        return await self._request_json(url)
 
     async def get_project(self, slug: str) -> dict:
-        """Fetch full project detail by slug.
-
-        Args:
-            slug: Project URL slug (e.g., 'my-ai-project').
-
-        Returns:
-            Raw project JSON from Kickstarter.
-        """
-        logger.debug(f"Fetching project: {slug}")
-        return await self._request("GET", f"/projects/{slug}.json")
+        """Fetch full project detail by slug."""
+        url = f"{BASE_URL}/projects/{slug}.json"
+        logger.debug(f"Project detail: {url}")
+        return await self._request_json(url)
 
     async def discover_all_pages(
         self,
-        term: Optional[str] = None,
-        category_id: Optional[int] = None,
+        term: str | None = None,
+        category_id: int | None = None,
         state: str = "all",
         sort: str = "newest",
         max_pages: int = 100,
         page_delay: float = 1.5,
     ) -> list[dict]:
-        """Paginate through all discover results.
-
-        Args:
-            term: Search query.
-            category_id: Category filter.
-            state: State filter.
-            sort: Sort order.
-            max_pages: Safety limit on pages to fetch.
-            page_delay: Extra delay between pages.
-
-        Yields all project dicts across pages.
-        """
+        """Paginate through all discover results."""
         all_projects = []
         page = 1
 
         while page <= max_pages:
             data = await self.discover(
-                term=term,
-                category_id=category_id,
-                state=state,
-                sort=sort,
-                page=page,
+                term=term, category_id=category_id, state=state, sort=sort, page=page,
             )
 
             projects = data.get("projects", [])
@@ -207,11 +199,9 @@ class KickstarterClient:
             all_projects.extend(projects)
             total = data.get("total_hits", len(all_projects))
             logger.info(
-                f"Page {page}: got {len(projects)} projects "
-                f"({len(all_projects)}/{total} total)"
+                f"Page {page}: {len(projects)} projects ({len(all_projects)}/{total} total)"
             )
 
-            # Check if we've gotten everything
             if len(all_projects) >= total:
                 break
 

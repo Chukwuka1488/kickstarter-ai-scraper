@@ -8,7 +8,8 @@ import sys
 import click
 from rich.console import Console
 
-from kickstarter_scraper.scraper import run_scrape
+from kickstarter_scraper.scraper import run_scrape, merge_and_export
+from kickstarter_scraper.detail_scraper import run_detail_scrape
 from kickstarter_scraper.utils.config import load_config
 from kickstarter_scraper.utils.logging import setup_logging
 
@@ -37,6 +38,32 @@ def scrape(config: str, log_level: str):
     cfg = load_config(config)
     projects = asyncio.run(run_scrape(cfg))
     console.print(f"\n[bold green]Done![/] Scraped {len(projects)} AI-related projects.")
+
+
+@main.command()
+@click.option("--config", "-c", default="configs/scrape_config.yaml")
+@click.option("--log-level", "-l", default="INFO",
+              type=click.Choice(["DEBUG", "INFO", "WARNING", "ERROR"]))
+@click.option("--rescrape", is_flag=True, default=False,
+              help="Clear existing detail data and re-fetch everything with expanded fields.")
+def details(config: str, log_level: str, rescrape: bool):
+    """Scrape full details (story, rewards, FAQs, creator, location, etc.) via GraphQL."""
+    setup_logging(level=log_level)
+    cfg = load_config(config)
+    run_detail_scrape(cfg, rescrape=rescrape)
+    console.print("[bold green]Done![/] Detail scrape complete.")
+
+
+@main.command(name="export")
+@click.option("--config", "-c", default="configs/scrape_config.yaml")
+@click.option("--log-level", "-l", default="INFO",
+              type=click.Choice(["DEBUG", "INFO", "WARNING", "ERROR"]))
+def export_cmd(config: str, log_level: str):
+    """Merge discovery + detail data and export comprehensive CSV/Parquet."""
+    setup_logging(level=log_level)
+    cfg = load_config(config)
+    df = merge_and_export(cfg)
+    console.print(f"[bold green]Done![/] Exported {len(df)} projects with all available fields.")
 
 
 @main.command()

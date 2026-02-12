@@ -9,10 +9,8 @@ build/
 venv/
 .venv/
 
-# Data (large files - export only what you need)
-data/raw/*.json
-data/processed/*.parquet
-data/exports/*.csv
+# Data (large files - don't commit scraped data)
+data/
 logs/*.log
 
 # Environment

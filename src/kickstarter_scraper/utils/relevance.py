@@ -6,41 +6,16 @@ import re
 
 # Weighted keyword groups for AI relevance scoring
 AI_KEYWORDS: dict[str, float] = {
-    # High signal (0.4 each match)
+    # High signal
     r"\bartificial intelligence\b": 0.4,
-    r"\bmachine learning\b": 0.4,
-    r"\bdeep learning\b": 0.4,
-    r"\bneural network": 0.4,
-    r"\blarge language model": 0.4,
-    r"\bllm\b": 0.4,
     r"\bgenerative ai\b": 0.4,
-    r"\bgpt[\s\-]": 0.35,
-    r"\bchatgpt\b": 0.35,
-    r"\btransformer model": 0.35,
-    # Medium signal (0.2 each)
-    r"\bcomputer vision\b": 0.2,
-    r"\bnatural language processing\b": 0.2,
-    r"\bnlp\b": 0.2,
-    r"\breinforcement learning\b": 0.2,
-    r"\bconvolutional\b": 0.2,
-    r"\brecurrent\b": 0.15,
-    r"\bgan\b": 0.15,
-    r"\bdiffusion model": 0.2,
-    r"\btext.to.image\b": 0.2,
-    r"\bimage recognition\b": 0.2,
-    r"\bspeech recognition\b": 0.15,
-    r"\bsentiment analysis\b": 0.15,
-    # Lower signal (0.1 each) - contextual
-    r"\bai[\s\-]powered\b": 0.15,
-    r"\bai[\s\-]driven\b": 0.15,
-    r"\bai\b": 0.1,
-    r"\bautonomous\b": 0.08,
-    r"\bintelligent\b": 0.05,
-    r"\bpredictive\b": 0.08,
-    r"\brobot": 0.08,
-    r"\bautomation\b": 0.05,
-    r"\bdata science\b": 0.1,
-    r"\balgorithm\b": 0.05,
+    r"\bai[\s\-]powered\b": 0.35,
+    r"\bai[\s\-]driven\b": 0.35,
+    r"\bai assistant\b": 0.35,
+    r"\bai tool\b": 0.3,
+    r"\bai app\b": 0.3,
+    # Medium signal
+    r"\bai\b": 0.15,
 }
 
 # Negative signals (reduce score) - common false positives

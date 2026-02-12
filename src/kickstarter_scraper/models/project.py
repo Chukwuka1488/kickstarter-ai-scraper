@@ -33,6 +33,9 @@ class Creator(BaseModel):
     created_projects_count: Optional[int] = None
     backed_projects_count: Optional[int] = None
     is_verified: Optional[bool] = None
+    biography: Optional[str] = None
+    websites: list[str] = Field(default_factory=list)
+    joined_at: Optional[str] = None
 
 
 class RewardTier(BaseModel):
@@ -111,6 +114,10 @@ class Project(BaseModel):
     # === Extra: Engagement metrics ===
     comments_count: Optional[int] = Field(default=None, description="[E] Number of comments")
     updates_count: Optional[int] = Field(default=None, description="[E] Number of updates posted")
+    watches_count: Optional[int] = Field(default=None, description="[E] Number of watchers (community proxy)")
+
+    # === Extra: Campaign duration ===
+    duration: Optional[int] = Field(default=None, description="[E] Campaign duration in days")
 
     # === Extra: Creator ===
     creator: Optional[Creator] = Field(default=None, description="[E] Creator profile")
@@ -148,6 +155,15 @@ class Project(BaseModel):
         d["creator_slug"] = creator.get("slug")
         d["creator_projects_count"] = creator.get("created_projects_count")
         d["creator_backed_count"] = creator.get("backed_projects_count")
+        d["creator_biography"] = creator.get("biography")
+        d["creator_websites"] = "; ".join(creator.get("websites") or []) or None
+        d["creator_joined_at"] = creator.get("joined_at")
+
+        # Flatten creator location
+        creator_loc = creator.get("location") or {}
+        d["creator_location_name"] = creator_loc.get("name")
+        d["creator_location_state"] = creator_loc.get("state")
+        d["creator_location_country"] = creator_loc.get("country")
 
         # Summarize rewards
         rewards = d.pop("rewards", [])
