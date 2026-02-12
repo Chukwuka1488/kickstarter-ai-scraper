@@ -9,9 +9,12 @@ build/
 venv/
 .venv/
 
-# Data (large files - don't commit scraped data)
-data/
+# Logs
 logs/*.log
+
+# Data backups (keep main data files)
+data/raw/*_old.jsonl
+data/.checkpoint.json
 
 # Environment
 .env
